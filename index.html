@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Games</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a1a;
+      color: #e0e0ff;
+      font-family: 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 60px 20px;
+    }
+
+    h1 {
+      font-size: 2.8rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      background: linear-gradient(90deg, #7b68ee, #00d4ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: #7070a0;
+      margin-bottom: 60px;
+      font-size: 1rem;
+      letter-spacing: 0.05em;
+    }
+
+    .games-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 24px;
+      width: 100%;
+      max-width: 1000px;
+    }
+
+    .game-card {
+      background: #12122a;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 32px 24px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+    }
+
+    .game-card:hover {
+      transform: translateY(-4px);
+      border-color: #7b68ee;
+      box-shadow: 0 8px 32px rgba(123, 104, 238, 0.2);
+    }
+
+    .game-card .icon {
+      font-size: 3rem;
+    }
+
+    .game-card .name {
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    .game-card .desc {
+      font-size: 0.85rem;
+      color: #7070a0;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    footer {
+      margin-top: 80px;
+      color: #3a3a5a;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Web Games</h1>
+  <p class="subtitle">Pick a game and play</p>
+
+  <div class="games-grid">
+    <a class="game-card" href="space-shooter/index.html">
+      <span class="icon">🚀</span>
+      <span class="name">Space Shooter</span>
+      <p class="desc">Classic arcade shooter — blast waves of alien invaders before they reach you.</p>
+    </a>
+    <!-- future games go here -->
+  </div>
+
+  <footer>More games coming soon</footer>
+</body>
+</html>
