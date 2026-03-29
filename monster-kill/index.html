@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monster Kill</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0d1a08;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', monospace;
+      color: #e0e0c0;
+    }
+
+    #back-btn {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: rgba(10, 20, 5, 0.85);
+      border: 1px solid #3a5a2a;
+      color: #90b070;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-decoration: none;
+      z-index: 100;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    #back-btn:hover { border-color: #88cc44; color: #e0e0c0; }
+
+    canvas {
+      display: block;
+      border: 2px solid #2a4a1a;
+      box-shadow: 0 0 40px rgba(40, 100, 20, 0.25);
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 12, 3, 0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      z-index: 200;
+    }
+
+    #overlay h2 {
+      font-size: 2.6rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, #88cc44, #ffaa22);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    #overlay p { color: #7a9060; font-size: 0.95rem; line-height: 1.6; text-align: center; }
+
+    #overlay button {
+      margin-top: 8px;
+      padding: 12px 40px;
+      background: linear-gradient(135deg, #4a7a20, #7a4010);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 1rem;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    #overlay button:hover { opacity: 0.85; }
+  </style>
+</head>
+<body>
+
+  <a id="back-btn" href="../index.html">← Back</a>
+  <canvas id="c"></canvas>
+
+  <div id="overlay">
+    <h2>Monster Kill</h2>
+    <p>WASD / Arrow keys to move</p>
+    <p>Space or Z to attack when close to the monster</p>
+    <button id="start-btn">START GAME</button>
+  </div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const overlayTitle = overlay.querySelector('h2');
+const overlayDesc = overlay.querySelectorAll('p');
+const startBtn = document.getElementById('start-btn');
+
+// ── sizing ────────────────────────────────────────────────────────────────────
+function resize() {
+  const size = Math.min(window.innerWidth - 32, window.innerHeight - 64, 580);
+  canvas.width = size;
+  canvas.height = size;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── seeded RNG (for reproducible grass) ──────────────────────────────────────
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+    return ((s >>> 0) / 0xffffffff);
+  };
+}
+
+// ── grass pattern ─────────────────────────────────────────────────────────────
+let grassPattern = null;
+function buildGrassPattern() {
+  const off = document.createElement('canvas');
+  off.width = 64; off.height = 64;
+  const oc = off.getContext('2d');
+  const rng = makeRng(12345);
+
+  oc.fillStyle = '#3d6e22';
+  oc.fillRect(0, 0, 64, 64);
+
+  const patches = [
+    '#4a8228', '#358020', '#2d6018', '#52903a',
+    '#3e7224', '#467828', '#305c1c'
+  ];
+  for (let i = 0; i < 60; i++) {
+    oc.fillStyle = patches[Math.floor(rng() * patches.length)];
+    const x = rng() * 64, y = rng() * 64;
+    const w = rng() * 8 + 2, h = rng() * 6 + 2;
+    oc.fillRect(x, y, w, h);
+  }
+  // tiny grass blades
+  for (let i = 0; i < 25; i++) {
+    oc.strokeStyle = rng() > 0.5 ? '#5aaa30' : '#296018';
+    oc.lineWidth = 1;
+    const x = rng() * 64, y = rng() * 64;
+    oc.beginPath();
+    oc.moveTo(x, y);
+    oc.lineTo(x + (rng() - 0.5) * 4, y - rng() * 7 - 3);
+    oc.stroke();
+  }
+
+  grassPattern = ctx.createPattern(off, 'repeat');
+}
+
+// ── constants ─────────────────────────────────────────────────────────────────
+const HERO_R    = 14;
+const MONSTER_R = 19;
+const MELEE_RANGE = 52; // extra px beyond radii
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let running = false;
+let keys = {};
+let animId;
+let hero, monster, swordAnim;
+let particles = [];
+let floatTexts = [];
+let gameResult = null; // 'win' | 'lose' | null
+
+function initGame() {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+
+  hero = {
+    x: cx,
+    y: cy + 130,
+    r: HERO_R,
+    hp: 100, maxHp: 100,
+    atk: 15,
+    speed: 3,
+    facing: -Math.PI / 2, // up
+    attackCooldown: 0,
+    hitFlash: 0,
+  };
+
+  monster = {
+    x: cx,
+    y: cy - 90,
+    r: MONSTER_R,
+    hp: 80, maxHp: 80,
+    atk: 10,
+    attackTimer: 0,
+    attackInterval: 90,
+    hitFlash: 0,
+    alive: true,
+    wobble: 0,
+  };
+
+  swordAnim  = null;
+  particles  = [];
+  floatTexts = [];
+  gameResult = null;
+  buildGrassPattern();
+}
+
+// ── input ─────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))
+    e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+function dist(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function inMeleeRange() {
+  return dist(hero, monster) < MELEE_RANGE + hero.r + monster.r;
+}
+
+function spawnParticles(x, y, color, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 3.5 + 0.8;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: 0.035 + Math.random() * 0.03,
+      r: Math.random() * 3.5 + 1,
+      color
+    });
+  }
+}
+
+function spawnFloatText(x, y, text, color) {
+  floatTexts.push({ x, y, text, color, life: 1, vy: -1.2 });
+}
+
+// ── update ────────────────────────────────────────────────────────────────────
+function update() {
+  if (!running) return;
+
+  // ── hero movement ──────────────────────────────────────────────────────────
+  let dx = 0, dy = 0;
+  if (keys['ArrowLeft']  || keys['KeyA']) dx -= 1;
+  if (keys['ArrowRight'] || keys['KeyD']) dx += 1;
+  if (keys['ArrowUp']    || keys['KeyW']) dy -= 1;
+  if (keys['ArrowDown']  || keys['KeyS']) dy += 1;
+
+  if (dx !== 0 || dy !== 0) {
+    const len = Math.sqrt(dx * dx + dy * dy);
+    hero.facing = Math.atan2(dy, dx);
+    hero.x = Math.max(hero.r, Math.min(canvas.width  - hero.r, hero.x + (dx / len) * hero.speed));
+    hero.y = Math.max(hero.r, Math.min(canvas.height - hero.r, hero.y + (dy / len) * hero.speed));
+  }
+
+  // ── hero attack ────────────────────────────────────────────────────────────
+  if (hero.attackCooldown > 0) hero.attackCooldown--;
+
+  if ((keys['Space'] || keys['KeyZ']) && hero.attackCooldown === 0) {
+    if (monster.alive && inMeleeRange()) {
+      // face the monster while swinging
+      const ax = monster.x - hero.x, ay = monster.y - hero.y;
+      hero.facing = Math.atan2(ay, ax);
+
+      const dmg = hero.atk;
+      monster.hp = Math.max(0, monster.hp - dmg);
+      monster.hitFlash = 14;
+      monster.wobble = 8;
+      hero.attackCooldown = 30;
+      swordAnim = { angle: hero.facing, life: 1, decay: 0.07 };
+
+      spawnParticles(monster.x, monster.y, '#ff7744', 10);
+      spawnFloatText(monster.x, monster.y - monster.r - 10, `-${dmg}`, '#ff9955');
+
+      if (monster.hp <= 0) {
+        monster.alive = false;
+        spawnParticles(monster.x, monster.y, '#ff3300', 24);
+        spawnParticles(monster.x, monster.y, '#ffaa33', 14);
+        endGame('win');
+      }
+    } else {
+      // swing and miss
+      swordAnim = { angle: hero.facing, life: 1, decay: 0.07 };
+      hero.attackCooldown = 20;
+    }
+  }
+
+  // ── sword anim ─────────────────────────────────────────────────────────────
+  if (swordAnim) {
+    swordAnim.life -= swordAnim.decay;
+    if (swordAnim.life <= 0) swordAnim = null;
+  }
+
+  // ── monster auto-attack ────────────────────────────────────────────────────
+  if (monster.alive) {
+    monster.attackTimer++;
+    if (monster.attackTimer >= monster.attackInterval) {
+      monster.attackTimer = 0;
+      if (inMeleeRange()) {
+        const dmg = monster.atk;
+        hero.hp = Math.max(0, hero.hp - dmg);
+        hero.hitFlash = 14;
+        spawnParticles(hero.x, hero.y, '#5599ff', 7);
+        spawnFloatText(hero.x, hero.y - hero.r - 10, `-${dmg}`, '#88aaff');
+
+        if (hero.hp <= 0) {
+          running = false;
+          endGame('lose');
+        }
+      }
+    }
+    if (monster.wobble > 0) monster.wobble--;
+  }
+
+  // ── flash cooldowns ────────────────────────────────────────────────────────
+  if (hero.hitFlash    > 0) hero.hitFlash--;
+  if (monster.hitFlash > 0) monster.hitFlash--;
+
+  // ── particles ─────────────────────────────────────────────────────────────
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.94; p.vy *= 0.94;
+    p.life -= p.decay;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // ── float texts ────────────────────────────────────────────────────────────
+  for (let i = floatTexts.length - 1; i >= 0; i--) {
+    const ft = floatTexts[i];
+    ft.y += ft.vy;
+    ft.life -= 0.025;
+    if (ft.life <= 0) floatTexts.splice(i, 1);
+  }
+}
+
+// ── draw helpers ──────────────────────────────────────────────────────────────
+function drawShadow(x, y, r) {
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + r - 2, r * 0.85, r * 0.32, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawHpBar(x, y, r, hp, maxHp, color) {
+  const w = r * 2.8;
+  const bx = x - w / 2, by = y - r - 20;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(bx - 1, by - 1, w + 2, 9);
+  ctx.fillStyle = color;
+  ctx.fillRect(bx, by, w * Math.max(0, hp / maxHp), 7);
+  ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, w, 7);
+}
+
+function drawHero() {
+  const { x, y, r, facing, hitFlash } = hero;
+  const wobX = x + (monster.wobble > 0 ? 0 : 0);
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // body
+  ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#5588ee';
+  ctx.shadowColor = hitFlash > 0 ? '#ffffff' : '#3366cc';
+  ctx.shadowBlur  = hitFlash > 0 ? 18 : 6;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // outline
+  ctx.strokeStyle = hitFlash > 0 ? '#aabbff' : '#2244aa';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // direction dot (helmet visor)
+  ctx.fillStyle = hitFlash > 0 ? '#eeeeff' : '#aaccff';
+  ctx.beginPath();
+  ctx.arc(Math.cos(facing) * (r - 5), Math.sin(facing) * (r - 5), 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // sword swing arc
+  if (swordAnim) {
+    const sa = swordAnim;
+    ctx.save();
+    ctx.globalAlpha = sa.life * 0.9;
+    const arcR = r + 20;
+    const halfArc = 0.65;
+
+    // glow arc
+    ctx.strokeStyle = '#ddeeff';
+    ctx.lineWidth = 6;
+    ctx.shadowBlur  = 12;
+    ctx.shadowColor = '#aaccff';
+    ctx.beginPath();
+    ctx.arc(0, 0, arcR, sa.angle - halfArc, sa.angle + halfArc);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // blade line
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(sa.angle - halfArc) * (r + 2), Math.sin(sa.angle - halfArc) * (r + 2));
+    ctx.lineTo(Math.cos(sa.angle) * (arcR + 6), Math.sin(sa.angle) * (arcR + 6));
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  drawShadow(x, y, r);
+  drawHpBar(x, y, r, hero.hp, hero.maxHp, '#44cc44');
+
+  ctx.fillStyle = '#88ee66';
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('HERO', x, y - r - 24);
+}
+
+function drawMonster() {
+  if (!monster.alive) return;
+  const { x, y, r, hitFlash, wobble } = monster;
+  const wx = x + (wobble > 0 ? Math.sin(wobble * 1.8) * 3 : 0);
+
+  ctx.save();
+  ctx.translate(wx, y);
+
+  // body
+  ctx.fillStyle = hitFlash > 0 ? '#ffffff' : '#c43020';
+  ctx.shadowColor = hitFlash > 0 ? '#ffffff' : '#881500';
+  ctx.shadowBlur  = hitFlash > 0 ? 20 : 8;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // outline
+  ctx.strokeStyle = hitFlash > 0 ? '#ffaaaa' : '#7a1000';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // horns
+  ctx.fillStyle = hitFlash > 0 ? '#eeeeee' : '#8a2200';
+  [[- r + 2, -7], [r - 2, -7]].forEach(([ox]) => {
+    const sign = ox < 0 ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(sign * (r - 6), -r + 4);
+    ctx.lineTo(sign * (r - 2), -r - 10);
+    ctx.lineTo(sign * (r - 10), -r + 2);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  // eyes
+  const eyeCol = hitFlash > 0 ? '#ffcc00' : '#ffee00';
+  ctx.fillStyle = eyeCol;
+  ctx.beginPath(); ctx.arc(-7, -5, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 7, -5, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(-7, -5, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 7, -5, 2.5, 0, Math.PI * 2); ctx.fill();
+
+  // angry mouth
+  ctx.strokeStyle = '#7a1000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 5, 8, 0.3, Math.PI - 0.3);
+  ctx.stroke();
+
+  ctx.restore();
+
+  drawShadow(wx, y, r);
+  drawHpBar(wx, y, r, monster.hp, monster.maxHp, '#cc2211');
+
+  ctx.fillStyle = '#ff8855';
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('MONSTER', wx, y - r - 24);
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFloatTexts() {
+  for (const ft of floatTexts) {
+    ctx.globalAlpha = Math.max(0, ft.life);
+    ctx.fillStyle = ft.color;
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(ft.text, ft.x, ft.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  if (!running || !monster.alive) return;
+
+  const inRange = inMeleeRange();
+
+  // melee range ring
+  ctx.strokeStyle = inRange ? 'rgba(255,255,80,0.22)' : 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.arc(hero.x, hero.y, MELEE_RANGE + hero.r + monster.r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // hint text
+  if (inRange) {
+    ctx.fillStyle = hero.attackCooldown > 0 ? 'rgba(200,180,60,0.7)' : 'rgba(255,240,80,0.95)';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('[SPACE]  Attack', canvas.width / 2, canvas.height - 14);
+  }
+
+  // attack cooldown bar
+  if (hero.attackCooldown > 0) {
+    const barW = 90, barH = 8;
+    const bx = 12, by = canvas.height - 24;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(bx, by, barW, barH);
+    const ratio = 1 - hero.attackCooldown / 30;
+    ctx.fillStyle = ratio < 0.5 ? '#cc8800' : '#ffcc44';
+    ctx.fillRect(bx, by, barW * ratio, barH);
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, barW, barH);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('ATK READY', bx + barW + 5, by + barH - 1);
+  }
+}
+
+function draw() {
+  // grass
+  if (grassPattern) {
+    ctx.fillStyle = grassPattern;
+  } else {
+    ctx.fillStyle = '#3d6e22';
+  }
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawParticles();
+  if (running || gameResult) {
+    drawMonster();
+    drawHero();
+  }
+  drawFloatTexts();
+  drawHUD();
+}
+
+// ── game over ─────────────────────────────────────────────────────────────────
+function endGame(result) {
+  gameResult = result;
+  running = false;
+
+  setTimeout(() => {
+    overlayTitle.textContent = result === 'win' ? 'VICTORY!' : 'DEFEATED!';
+    overlayDesc[0].textContent = result === 'win'
+      ? 'The monster has been slain!'
+      : 'You were slain by the monster...';
+    overlayDesc[1].textContent = '';
+    startBtn.textContent = 'PLAY AGAIN';
+    overlay.style.display = 'flex';
+  }, result === 'win' ? 800 : 1000);
+}
+
+// ── loop ──────────────────────────────────────────────────────────────────────
+function loop() {
+  update();
+  draw();
+  animId = requestAnimationFrame(loop);
+}
+
+// ── start ─────────────────────────────────────────────────────────────────────
+startBtn.addEventListener('click', () => {
+  overlay.style.display = 'none';
+  overlayTitle.textContent = 'Monster Kill';
+  overlayDesc[0].textContent = 'WASD / Arrow keys to move';
+  overlayDesc[1].textContent = 'Space or Z to attack when close to the monster';
+  startBtn.textContent = 'START GAME';
+  initGame();
+  running = true;
+  if (animId) cancelAnimationFrame(animId);
+  loop();
+});
+
+// init background loop while on title screen
+buildGrassPattern();
+loop();
+</script>
+</body>
+</html>
