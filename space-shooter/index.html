@@ -91,10 +91,59 @@
     #overlay button:hover { opacity: 0.85; }
 
     #score-display { color: #e0e0ff; font-size: 1.1rem; }
+
+    #name-entry {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    #player-name {
+      background: rgba(20, 20, 50, 0.9);
+      border: 1px solid #3a3a6a;
+      color: #e0e0ff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 1rem;
+      text-align: center;
+      outline: none;
+      width: 220px;
+    }
+    #player-name:focus { border-color: #7b68ee; }
+    #player-name::placeholder { color: #4a4a7a; }
+    #submit-score-btn {
+      padding: 10px 28px;
+      background: linear-gradient(135deg, #5a48cc, #2a8acc);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    #submit-score-btn:hover { opacity: 0.85; }
+    #submit-score-btn:disabled { opacity: 0.5; cursor: default; }
+    #scoreboard-panel {
+      width: 280px;
+    }
+    #scoreboard-panel table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    #scoreboard-panel th {
+      color: #7b68ee;
+      padding: 4px 8px;
+      text-align: left;
+      border-bottom: 1px solid #3a3a6a;
+    }
+    #scoreboard-panel td { color: #a0a0d0; padding: 4px 8px; }
+    #scoreboard-panel tr.sb-highlight td { color: #e0e0ff; }
   </style>
 </head>
 <body>
 
+  <script src="https://scoreboard-production-04d4.up.railway.app/client.js"></script>
   <a id="back-btn" href="../index.html">← Back</a>
 
   <div id="hud">
@@ -109,6 +158,11 @@
     <h2>SPACE SHOOTER</h2>
     <p>Arrow keys / WASD to move &nbsp;·&nbsp; Space to fire</p>
     <p>Touch: tap sides to move, tap center to fire</p>
+    <div id="name-entry" style="display:none">
+      <input id="player-name" type="text" placeholder="Enter your name" maxlength="50" autocomplete="off">
+      <button id="submit-score-btn">SUBMIT SCORE</button>
+    </div>
+    <div id="scoreboard-panel" style="display:none"></div>
     <button id="start-btn">START GAME</button>
   </div>
 
@@ -121,6 +175,13 @@ const startBtn = document.getElementById('start-btn');
 const scoreEl = document.getElementById('score');
 const livesEl = document.getElementById('lives');
 const levelEl = document.getElementById('level');
+const nameEntry = document.getElementById('name-entry');
+const playerNameInput = document.getElementById('player-name');
+const submitScoreBtn = document.getElementById('submit-score-btn');
+const scoreboardPanel = document.getElementById('scoreboard-panel');
+
+const GAME_ID = 'e082f45c-fc13-4fbf-bee1-cfa6397b93b8';
+const GAME_VERSION = 1;
 
 // ── sizing ────────────────────────────────────────────────────────────────────
 function resize() {
@@ -422,10 +483,51 @@ function gameOver() {
   const p = overlay.querySelectorAll('p');
   if (p[0]) p[0].textContent = `Final score: ${score}`;
   if (p[1]) p[1].style.display = 'none';
-  let sd = overlay.querySelector('#score-display');
-  if (!sd) { sd = document.createElement('p'); sd.id = 'score-display'; overlay.insertBefore(sd, startBtn); }
-  startBtn.textContent = 'PLAY AGAIN';
+  nameEntry.style.display = 'flex';
+  scoreboardPanel.style.display = 'none';
+  playerNameInput.value = '';
+  submitScoreBtn.disabled = false;
+  submitScoreBtn.textContent = 'SUBMIT SCORE';
+  startBtn.style.display = 'none';
   overlay.style.display = 'flex';
+  setTimeout(() => playerNameInput.focus(), 50);
+}
+
+submitScoreBtn.addEventListener('click', async () => {
+  const name = playerNameInput.value.trim();
+  if (!name) { playerNameInput.focus(); return; }
+  submitScoreBtn.disabled = true;
+  submitScoreBtn.textContent = 'Submitting…';
+  await window.Scoreboard?.submitScore(GAME_ID, GAME_VERSION, name, score);
+  nameEntry.style.display = 'none';
+  await showScoreboard(score, name);
+  startBtn.style.display = '';
+  startBtn.textContent = 'PLAY AGAIN';
+});
+
+playerNameInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitScoreBtn.click();
+});
+
+async function showScoreboard(highlightScore, highlightName) {
+  scoreboardPanel.style.display = 'block';
+  scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">Loading scores…</p>';
+  const result = await window.Scoreboard?.getScoreboard(GAME_ID, { limit: 10 });
+  if (!result || !result.entries || result.entries.length === 0) {
+    scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">No scores yet.</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>#</th><th>Player</th><th>Score</th></tr></thead><tbody>';
+  for (const e of result.entries) {
+    const hl = (e.score === highlightScore && e.playerName === highlightName) ? ' class="sb-highlight"' : '';
+    html += `<tr${hl}><td>${e.rank}</td><td>${escHtml(e.playerName)}</td><td>${e.score}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  scoreboardPanel.innerHTML = html;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ── draw ──────────────────────────────────────────────────────────────────────
@@ -490,6 +592,9 @@ startBtn.addEventListener('click', () => {
   if (p1) { p1.textContent = 'Touch: tap sides to move, tap center to fire'; p1.style.display = ''; }
   overlayTitle.textContent = 'SPACE SHOOTER';
   startBtn.textContent = 'START GAME';
+  startBtn.style.display = '';
+  nameEntry.style.display = 'none';
+  scoreboardPanel.style.display = 'none';
   initGame();
   running = true;
   if (animId) cancelAnimationFrame(animId);
