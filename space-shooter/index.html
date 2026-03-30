@@ -564,7 +564,9 @@ btnAllTime.addEventListener('click', async () => {
 async function showScoreboard() {
   scoreboardPanel.style.display = 'block';
   scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">Loading scores…</p>';
-  const opts = { limit: 10, period: sbPeriod };
+  const opts = sbPeriod === 'today'
+    ? { limit: 10, period: 'today', mode: 'best' }
+    : { limit: 10 };
   const result = await window.Scoreboard?.getScoreboard(GAME_ID, opts);
   if (!result || !result.entries || result.entries.length === 0) {
     scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">No scores yet.</p>';
