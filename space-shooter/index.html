@@ -89,6 +89,15 @@
       transition: opacity 0.2s;
     }
     #overlay button:hover { opacity: 0.85; }
+    #view-scores-btn {
+      background: transparent;
+      border: 1px solid #3a3a6a;
+      color: #7070a0;
+      font-size: 0.85rem;
+      padding: 8px 24px;
+      margin-top: -8px;
+    }
+    #view-scores-btn:hover { border-color: #7b68ee; color: #e0e0ff; opacity: 1; }
 
     #score-display { color: #e0e0ff; font-size: 1.1rem; }
 
@@ -189,6 +198,7 @@
     </div>
     <div id="scoreboard-panel" style="display:none"></div>
     <button id="start-btn">START GAME</button>
+    <button id="view-scores-btn">VIEW SCOREBOARD</button>
   </div>
 
 <script>
@@ -207,6 +217,7 @@ const scoreboardPanel = document.getElementById('scoreboard-panel');
 const periodToggle = document.getElementById('period-toggle');
 const btnDay = document.getElementById('btn-day');
 const btnAllTime = document.getElementById('btn-alltime');
+const viewScoresBtn = document.getElementById('view-scores-btn');
 
 const GAME_ID = 'e082f45c-fc13-4fbf-bee1-cfa6397b93b8';
 const GAME_VERSION = 1;
@@ -545,6 +556,15 @@ playerNameInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') submitScoreBtn.click();
 });
 
+viewScoresBtn.addEventListener('click', async () => {
+  sbPeriod = 'today';
+  sbHighlightScore = null; sbHighlightName = null;
+  btnDay.classList.add('active'); btnAllTime.classList.remove('active');
+  periodToggle.style.display = 'flex';
+  viewScoresBtn.style.display = 'none';
+  await showScoreboard();
+});
+
 btnDay.addEventListener('click', async () => {
   if (sbPeriod === 'today') return;
   sbPeriod = 'today';
@@ -663,6 +683,7 @@ startBtn.addEventListener('click', () => {
   nameEntry.style.display = 'none';
   scoreboardPanel.style.display = 'none';
   periodToggle.style.display = 'none';
+  viewScoresBtn.style.display = '';
   sbHighlightScore = null; sbHighlightName = null; sbPeriod = 'today';
   btnDay.classList.add('active'); btnAllTime.classList.remove('active');
   initGame();
