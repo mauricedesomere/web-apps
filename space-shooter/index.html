@@ -123,13 +123,34 @@
     }
     #submit-score-btn:hover { opacity: 0.85; }
     #submit-score-btn:disabled { opacity: 0.5; cursor: default; }
+    #period-toggle {
+      display: flex;
+      gap: 0;
+      border: 1px solid #3a3a6a;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #period-toggle button {
+      margin: 0;
+      padding: 6px 18px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      color: #7070a0;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    #period-toggle button:hover { background: rgba(123,104,238,0.15); color: #c0c0e0; }
+    #period-toggle button.active { background: rgba(123,104,238,0.35); color: #e0e0ff; }
     #scoreboard-panel {
-      width: 280px;
+      width: 300px;
     }
     #scoreboard-panel table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
     }
     #scoreboard-panel th {
       color: #7b68ee;
@@ -162,6 +183,10 @@
       <input id="player-name" type="text" placeholder="Enter your name" maxlength="50" autocomplete="off">
       <button id="submit-score-btn">SUBMIT SCORE</button>
     </div>
+    <div id="period-toggle" style="display:none">
+      <button id="btn-day" class="active">Today</button>
+      <button id="btn-alltime">All Time</button>
+    </div>
     <div id="scoreboard-panel" style="display:none"></div>
     <button id="start-btn">START GAME</button>
   </div>
@@ -179,6 +204,9 @@ const nameEntry = document.getElementById('name-entry');
 const playerNameInput = document.getElementById('player-name');
 const submitScoreBtn = document.getElementById('submit-score-btn');
 const scoreboardPanel = document.getElementById('scoreboard-panel');
+const periodToggle = document.getElementById('period-toggle');
+const btnDay = document.getElementById('btn-day');
+const btnAllTime = document.getElementById('btn-alltime');
 
 const GAME_ID = 'e082f45c-fc13-4fbf-bee1-cfa6397b93b8';
 const GAME_VERSION = 1;
@@ -493,14 +521,22 @@ function gameOver() {
   setTimeout(() => playerNameInput.focus(), 50);
 }
 
+let sbHighlightScore = null, sbHighlightName = null, sbPeriod = 'day';
+
 submitScoreBtn.addEventListener('click', async () => {
   const name = playerNameInput.value.trim();
   if (!name) { playerNameInput.focus(); return; }
   submitScoreBtn.disabled = true;
   submitScoreBtn.textContent = 'Submitting…';
   await window.Scoreboard?.submitScore(GAME_ID, GAME_VERSION, name, score);
+  sbHighlightScore = score;
+  sbHighlightName = name;
+  sbPeriod = 'day';
   nameEntry.style.display = 'none';
-  await showScoreboard(score, name);
+  periodToggle.style.display = 'flex';
+  btnDay.classList.add('active');
+  btnAllTime.classList.remove('active');
+  await showScoreboard();
   startBtn.style.display = '';
   startBtn.textContent = 'PLAY AGAIN';
 });
@@ -509,21 +545,50 @@ playerNameInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') submitScoreBtn.click();
 });
 
-async function showScoreboard(highlightScore, highlightName) {
+btnDay.addEventListener('click', async () => {
+  if (sbPeriod === 'day') return;
+  sbPeriod = 'day';
+  btnDay.classList.add('active');
+  btnAllTime.classList.remove('active');
+  await showScoreboard();
+});
+
+btnAllTime.addEventListener('click', async () => {
+  if (sbPeriod === 'all') return;
+  sbPeriod = 'all';
+  btnAllTime.classList.add('active');
+  btnDay.classList.remove('active');
+  await showScoreboard();
+});
+
+async function showScoreboard() {
   scoreboardPanel.style.display = 'block';
   scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">Loading scores…</p>';
-  const result = await window.Scoreboard?.getScoreboard(GAME_ID, { limit: 10 });
+  const opts = { limit: 10, period: sbPeriod };
+  const result = await window.Scoreboard?.getScoreboard(GAME_ID, opts);
   if (!result || !result.entries || result.entries.length === 0) {
     scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">No scores yet.</p>';
     return;
   }
-  let html = '<table><thead><tr><th>#</th><th>Player</th><th>Score</th></tr></thead><tbody>';
+  const showDate = sbPeriod === 'all';
+  const dateHeader = showDate ? '<th>Date</th>' : '<th>Time</th>';
+  let html = `<table><thead><tr><th>#</th><th>Player</th><th>Score</th>${dateHeader}</tr></thead><tbody>`;
   for (const e of result.entries) {
-    const hl = (e.score === highlightScore && e.playerName === highlightName) ? ' class="sb-highlight"' : '';
-    html += `<tr${hl}><td>${e.rank}</td><td>${escHtml(e.playerName)}</td><td>${e.score}</td></tr>`;
+    const hl = (e.score === sbHighlightScore && e.playerName === sbHighlightName) ? ' class="sb-highlight"' : '';
+    const dateStr = formatEntryDate(e.createdAt, showDate);
+    html += `<tr${hl}><td>${e.rank}</td><td>${escHtml(e.playerName)}</td><td>${e.score}</td><td>${dateStr}</td></tr>`;
   }
   html += '</tbody></table>';
   scoreboardPanel.innerHTML = html;
+}
+
+function formatEntryDate(iso, showDate) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (showDate) {
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 function escHtml(s) {
@@ -595,6 +660,9 @@ startBtn.addEventListener('click', () => {
   startBtn.style.display = '';
   nameEntry.style.display = 'none';
   scoreboardPanel.style.display = 'none';
+  periodToggle.style.display = 'none';
+  sbHighlightScore = null; sbHighlightName = null; sbPeriod = 'day';
+  btnDay.classList.add('active'); btnAllTime.classList.remove('active');
   initGame();
   running = true;
   if (animId) cancelAnimationFrame(animId);
