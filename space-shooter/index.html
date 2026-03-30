@@ -531,7 +531,7 @@ submitScoreBtn.addEventListener('click', async () => {
   await window.Scoreboard?.submitScore(GAME_ID, GAME_VERSION, name, score);
   sbHighlightScore = score;
   sbHighlightName = name;
-  sbPeriod = 'day';
+  sbPeriod = 'today';
   nameEntry.style.display = 'none';
   periodToggle.style.display = 'flex';
   btnDay.classList.add('active');
@@ -546,8 +546,8 @@ playerNameInput.addEventListener('keydown', e => {
 });
 
 btnDay.addEventListener('click', async () => {
-  if (sbPeriod === 'day') return;
-  sbPeriod = 'day';
+  if (sbPeriod === 'today') return;
+  sbPeriod = 'today';
   btnDay.classList.add('active');
   btnAllTime.classList.remove('active');
   await showScoreboard();
@@ -570,7 +570,7 @@ async function showScoreboard() {
     scoreboardPanel.innerHTML = '<p style="color:#4a4a7a;font-size:0.85rem;text-align:center">No scores yet.</p>';
     return;
   }
-  const showDate = sbPeriod === 'all';
+  const showDate = sbPeriod !== 'today';
   const dateHeader = showDate ? '<th>Date</th>' : '<th>Time</th>';
   let html = `<table><thead><tr><th>#</th><th>Player</th><th>Score</th>${dateHeader}</tr></thead><tbody>`;
   for (const e of result.entries) {
@@ -661,7 +661,7 @@ startBtn.addEventListener('click', () => {
   nameEntry.style.display = 'none';
   scoreboardPanel.style.display = 'none';
   periodToggle.style.display = 'none';
-  sbHighlightScore = null; sbHighlightName = null; sbPeriod = 'day';
+  sbHighlightScore = null; sbHighlightName = null; sbPeriod = 'today';
   btnDay.classList.add('active'); btnAllTime.classList.remove('active');
   initGame();
   running = true;
